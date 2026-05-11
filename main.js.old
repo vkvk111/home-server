@@ -1,0 +1,475 @@
+// -------------------- normal imports below --------------------
+const fs = require('fs');
+const { exec } = require('child_process');
+
+//read id from ID.txt file
+let gatewayId = null;
+if (fs.existsSync('ID.txt')) {
+    gatewayId = fs.readFileSync('ID.txt', 'utf8').trim();
+    // ...removed print...
+}else {
+    // ...removed print...
+    process.exit(1); // Exit the script if ID.txt is not found
+}
+
+
+// --------------------  db stuff below --------------------
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('db.sqlite');
+
+// Create table if it doesn't exist
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        deviceId TEXT,
+        sensorId INTEGER,
+        value REAL,
+        timestamp INTEGER
+    )`);
+});
+
+
+// ------------------------  fetch stuff below --------------------
+const fetch = require('node-fetch');
+const serverUrl = 'https://kybetube.com'; 
+
+
+// ----------------------------  websocket stuff below --------------------
+const WebSocket = require('ws');
+let ws = null; // Declare ws variable globally
+let connectionInterval = null; // Variable to hold the interval for pinging the WebSocket server
+connectWebSocket(); // Call the function to establish the WebSocket connection (ws will be used globally so this has to be called here)
+function connectWebSocket() {
+    
+    ws = new WebSocket('wss://kybetube.com:443');
+
+    ws.on('open', function open() {
+    // ...removed print...
+        // send a message to set the device ID or any initial setup
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(`set_gateway_id;${gatewayId}`); // Send the gateway ID to the server
+        }else {
+            // ...removed print...
+        }
+        if (connectionInterval) {
+            clearInterval(connectionInterval); // Clear any existing ping interval before setting a new one
+            connectionInterval = null; // Reset the interval variable
+        }
+        connectionInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.ping(); // Send a ping to keep the connection alive
+                // ...removed print...
+            } else {
+                // ...removed print...
+                // Attempt to reconnect if the WebSocket is not open
+                ws.terminate(); // Close the current connection
+                ws = null; // Reset the ws variable
+                
+                connectWebSocket();
+            }
+        }, 120 * 1000); // every 120 seconds
+    });
+
+    ws.on('message', async (message) => {
+        const parts = message.toString().split(';');
+        const what = parts[0];
+
+        if (what === 'execute') {
+            const senderId = parts[1]; // Who requested the command
+            const command = parts.slice(2).join(';');
+
+            // ...removed print...
+
+            // Execute the command and send output back
+            exec(command, (error, stdout, stderr) => {
+                const output = error ? `ERROR: ${error.message}` : stdout || stderr;
+                ws.send(`output;${senderId};${output}`);
+            });
+            
+        } else if (what === "reboot") {
+            rebootDevice();
+        } else if (what === "get_status_plug") {
+            const deviceId = parts[1];
+            const messageId = parts[2];
+
+            //get plug status
+            const plugStatus = await getPlugStatus(deviceId);
+            // ...removed print...
+
+            // Response with plug status
+            const response = `output;0;${plugStatus};${messageId}`;
+            ws.send(response);
+        } else if (what === "set_status_plug") {
+            const deviceId = parts[1];
+            const status = parts[2];
+            
+            // Set plug status
+            setPlugStatus(deviceId, status);
+        }
+    });
+
+    ws.on('close', function close() {
+    // ...removed print...
+        //ws = new WebSocket('wss://kybetube.com:443'); // Reconnect to the WebSocket server ////NOT WORKING I THINK THIS NEEDS A BETTER SOLUTION
+    });
+
+    ws.on('error', function error(err) {
+    // ...removed print...
+    });
+}
+
+
+
+
+
+
+
+
+// --------------------  mqtt stuff below --------------------
+const mqtt = require('mqtt');
+
+const brokerUrl = 'mqtt://localhost:1883'; // the broker runs locally on the gateway
+
+const options = {
+    username: 'kybe', // Replace with your MQTT username
+    password: '88888888', // Replace with your MQTT password
+}
+
+const client = mqtt.connect(brokerUrl, options);
+
+client.on('connect', () => {
+    // ...removed print...
+
+    client.subscribe('#', (err) => {
+        if (err) {
+            // ...removed print...
+        } else {
+            // ...removed print...
+        }
+    });
+});
+
+async function getPlugStatus(id) {
+    return new Promise((resolve, reject) => {
+        const statusTopic = `cmnd/plug${id}/Status`;
+        const responseTopic = `stat/plug${id}/STATUS`;
+
+        // Handler for the response
+        function handleMessage(topic, message) {
+            if (topic == responseTopic) {
+                client.removeListener('message', handleMessage);
+                resolve(message.toString());
+            }
+        }
+
+        // Listen for the response
+        client.on('message', handleMessage);
+
+        // Publish the status request
+        client.publish(statusTopic, '0', { qos: 1 }, (err) => {
+            if (err) {
+                client.removeListener('message', handleMessage);
+                reject(`Failed to request status for device ${id}: ${err}`);
+            }
+        });
+
+        // Timeout in case no response comes
+        setTimeout(() => {
+            client.removeListener('message', handleMessage);
+            reject('Timeout waiting for plug status');
+        }, 5000); // 5 seconds timeout
+    });
+}
+
+async function setPlugStatusAwait(id, status) {
+    return new Promise((resolve, reject) => {
+        const commandTopic = `cmnd/plug${id}/Power`;
+        client.publish(commandTopic, status, { qos: 1 }, (err) => {
+            if (err) {
+                reject(`Failed to set status for device ${id}: ${err}`);
+            } else {
+                resolve(`Status set for device ${id}`);
+            }
+        });
+    });
+}
+
+function setPlugStatus(id, status) {
+    //sync version
+    const commandTopic = `cmnd/plug${id}/Power`;
+    client.publish(commandTopic, status, { qos: 1 }, (err) => {
+        if (err) {
+            // ...removed print...
+        } else {
+            // ...removed print...
+        }
+    });
+}
+
+
+function rebootDevice() {
+    exec('reboot', (error, stdout, stderr) => {
+        const output = error ? `ERROR: ${error.message}` : stdout || stderr;
+    });
+}
+
+client.on('message', (topic, message) => {
+    //process the message based on the topic
+    if (topic.startsWith('plug')) {
+        processPlugMessage(topic, message);
+    //} else if(topic.startsWith('stat')){
+    //this is currently handled in normal processing function
+        //process status messages
+        //processStatusMessage(topic, message);
+    } else {
+    // ...removed print...
+    }
+});
+
+function requestStatus(id) {
+    // just post a message to the status topic
+    const statusTopic = `cmnd/${id}/Status`;
+    const statusMessage = '0'; // Request status message
+    client.publish(statusTopic, statusMessage, { qos: 1 }, (err) => {
+        if (err) {
+            // ...removed print...
+        }
+    });
+}
+
+
+function processPlugMessage(topic, message) {
+    // Example processing function
+    // ...removed print...
+    // Add your processing logic here
+    const topicParts = topic.split('/');
+    //string is "plug[id]/xxx/xxx" without the []
+    const plugId = topicParts[0].replace('plug', '');
+    const topicType = topicParts[1]; // e.g., 'status', 'command', etc.
+    const messageContent = message.toString();
+    //timestamp in seconds
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // Here you can implement your logic based on the plugId and topicType
+    if (topicType === 'voltage') {
+        const sensorId = 1; //voltage is always sensor 1
+        const sensorValue = parseFloat(messageContent); // Assuming the message is a numeric value
+    // ...removed print...
+        // Save to database
+        db.run(
+            `INSERT INTO posts (deviceId, sensorId, value, timestamp) VALUES (?, ?, ?, ?)`,
+            [plugId, sensorId, sensorValue, timestamp],
+            (err) => {
+                if (err) console.error('Error inserting post:', err);
+            }
+        );
+
+    }
+    else if (topicType === 'current') {
+        const sensorId = 2; //current is always sensor 2
+        const sensorValue = parseFloat(messageContent); // Assuming the message is a numeric value
+    // ...removed print...
+        // Save to database
+        db.run(
+            `INSERT INTO posts (deviceId, sensorId, value, timestamp) VALUES (?, ?, ?, ?)`,
+            [plugId, sensorId, sensorValue, timestamp],
+            (err) => {
+                if (err) console.error('Error inserting post:', err);
+            }
+        );
+    }
+    else if (topicType === 'energycounter') {
+        const sensorId = 3; //energycounter is always sensor 3
+        const sensorValue = parseFloat(messageContent); // Assuming the message is a numeric value
+        // Save to database
+        db.run(
+            `INSERT INTO posts (deviceId, sensorId, value, timestamp) VALUES (?, ?, ?, ?)`,
+            [plugId, sensorId, sensorValue, timestamp],
+            (err) => {
+                if (err) console.error('Error inserting post:', err);
+            }
+        );
+    }
+    else if (topicType === 'power') {
+        const sensorId = 4; //power is always sensor 3
+        const sensorValue = parseFloat(messageContent); // Assuming the message is a numeric value
+        // Save to database
+        db.run(
+            `INSERT INTO posts (deviceId, sensorId, value, timestamp) VALUES (?, ?, ?, ?)`,
+            [plugId, sensorId, sensorValue, timestamp],
+            (err) => {
+                if (err) console.error('Error inserting post:', err);
+            }
+        );
+    } 
+    else if (topicType === 'power_factor') {
+        const sensorId = 5; //power_factor is always sensor 5
+        const sensorValue = parseFloat(messageContent); // Assuming the message is a numeric value
+        // Save to database
+        db.run(
+            `INSERT INTO posts (deviceId, sensorId, value, timestamp) VALUES (?, ?, ?, ?)`,
+            [plugId, sensorId, sensorValue, timestamp],
+            (err) => {
+                if (err) console.error('Error inserting post:', err);
+            }
+        );
+    } else if (topicType === 'status') {
+        //console.log(`Status message from plug ${plugId}: ${messageContent}`);
+    }
+
+}
+
+
+async function sendData(data) {
+    return new Promise((resolve, reject) => {
+        fetch(serverUrl + '/sensordata', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.status)
+        .then(status => {
+            if (status == 200) {
+                //console.log('Data sent successfully');
+                resolve(status);
+            } else {
+                reject(status);
+                console.error('Failed to send data, status code:', status);
+            }
+        })
+    })
+    .catch(error => {
+        console.error('Error sending data:', error);
+        reject(error);
+    });
+}
+
+
+async function pingDevice(deviceId) {
+
+    return new Promise((resolve, reject) => {
+        fetch(serverUrl + "/deviceping", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: deviceId })
+        })
+        .then(response => {
+            console.log(`Pinged device ${deviceId}, status code: ${response.status}`);
+            if (response.status == 200) {
+                resolve(response.status);
+            } else {
+                reject(`Failed to ping device ${deviceId}, status code: ${response.status}`);
+            }
+        })
+        .catch(error => {
+            console.error(`Error pinging device ${deviceId}:`, error);
+            reject(error);
+        });
+    });
+}
+
+function gatewayPing(deviceIds) {
+    return new Promise(async (resolve, reject) => {
+        
+        console.log("deviceIds: " + deviceIds);
+        try {
+            const response = await fetch(serverUrl + "/gatewayping", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gatewayId: gatewayId, connectedDevices: deviceIds })
+            });
+            if (response.status == 200) {
+                console.log('Gateway pinged successfully');
+                resolve(response.status);
+            } else {
+                console.error('Failed to ping gateway, status code:', response.status);
+                resolve(response.status); // Resolve with status code even if not 200
+            }
+        } catch (error) {
+            console.error('Error pinging gateway:', error);
+            resolve(-1); // Resolve with -1 to indicate an error
+        }
+    });
+}
+
+
+function getAllPosts() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM posts`, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
+//send loop
+// loop every x minutes to send data to the server, but for now just log "sent data to server" and delete the data from the database
+async function sendLoop() {
+    const posts = await getAllPosts();
+    const deviceIds = [...new Set(posts.map(post => post.deviceId))];
+
+    const ping = await gatewayPing(deviceIds);
+
+    if (ping != 200) {
+        console.error('Failed to ping gateway, aborting data send. Data length:' + posts.length);
+        setTimeout(sendLoop, 60 * 1000); // Wait and try again
+        return;
+    }
+
+    if (posts.length > 0 && posts.length < 500) {
+        console.log("Sending data to server, posts length: " + posts.length);
+        const dataToSend = posts.map(post => ({
+            deviceId: post.deviceId,
+            sensorId: post.sensorId,
+            value: post.value,
+            timestamp: post.timestamp
+        }));
+        try {
+            const status = await sendData(dataToSend);
+            if (status == 200) {
+                console.log('Data sent successfully');
+                db.run(`DELETE FROM posts`, (err) => {
+                    if (err) console.error('Error deleting posts:', err);
+                });
+            } else {
+                console.error('Failed to send data, status code:', status);
+            }
+        } catch (error) {
+            console.error('Error sending data:', error);
+        }
+    } else if (posts.length >= 500) {
+        console.log("Sending data in batches, posts length: " + posts.length);
+        
+        let remaining = posts;
+        while (remaining.length > 0) {
+            const batch = remaining.slice(0, 500);
+            try {
+                const status = await sendData(batch);
+                if (status == 200) {
+                    const ids = batch.map(post => post.id);
+                    const placeholders = ids.map(() => '?').join(',');
+                    db.run(`DELETE FROM posts WHERE id IN (${placeholders})`, ids, (err) => {
+                        if (err) console.error('Error deleting batch:', err);
+                    });
+                } else {
+                    break;
+                }
+            } catch (error) {
+                break;
+            }
+            remaining = await getAllPosts();
+        }
+    } else {
+        console.log('No data to send');
+    }
+    console.log('Data send loop completed, waiting for next run...');
+    setTimeout(sendLoop, 60 * 1000); // Schedule next run after completion
+}
+
+// Start the loop
+
+console.log('Starting send loop...');
+sendLoop();
+
+
+

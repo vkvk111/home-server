@@ -5,6 +5,7 @@
 const routes = {
   dashboard: renderDashboard,
   gpio: renderGpio,
+  launch: renderLaunch,
 };
 
 let currentPage = 'dashboard';
@@ -173,6 +174,41 @@ function renderGpio(el) {
       out.textContent = JSON.stringify(res, null, 2);
     } catch (err) {
       out.textContent = `Error: ${err.message}`;
+    }
+  });
+}
+
+// ── Launch page ──────────────────────────────────────────────────────────────
+
+function renderLaunch(el) {
+  el.innerHTML = `
+    <h2>Launch Sequence</h2>
+    <div class="card launch-card">
+      <div class="card-title">Smart Plug Control</div>
+      <p class="launch-desc">Sends the launch sequence command to plug1001 via MQTT.</p>
+      <button id="launch-btn" class="btn-launch">&#9654; Run Launch Sequence</button>
+      <pre class="output" id="launch-out">—</pre>
+    </div>
+  `;
+
+  document.getElementById('launch-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('launch-btn');
+    const out = document.getElementById('launch-out');
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+    out.textContent = '—';
+    try {
+      const res = await apiFetch('/api/launch', { method: 'POST' });
+      out.textContent = res.message;
+      btn.textContent = '✓ Done';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '&#9654; Run Launch Sequence';
+      }, 2000);
+    } catch (err) {
+      out.textContent = `Error: ${escHtml(err.message)}`;
+      btn.disabled = false;
+      btn.textContent = '&#9654; Run Launch Sequence';
     }
   });
 }
