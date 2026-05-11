@@ -1,0 +1,30 @@
+'use strict';
+
+require('dotenv').config();
+
+const express = require('express');
+const path = require('path');
+const gpioRoutes = require('./routes/gpio');
+const systemRoutes = require('./routes/system');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.use(express.json());
+
+// Static SPA
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// API routes
+app.use('/api/gpio', gpioRoutes);
+app.use('/api/system', systemRoutes);
+
+// Fallback to SPA index
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`Home server running at http://${HOST}:${PORT}`);
+});
