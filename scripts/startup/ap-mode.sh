@@ -17,13 +17,19 @@ warn() { echo -e "\033[1;33m[ap-mode]\033[0m $*"; }
 
 # ── 1. Stop anything that might conflict with hostapd ─────────────────────────
 log "Stopping client WiFi processes on $IFACE…"
-# NetworkManager owns wpa_supplicant on Raspbian Bookworm — stop it first
-systemctl stop NetworkManager       2>/dev/null || true
-systemctl stop wpa_supplicant       2>/dev/null || true
-pkill -f "wpa_supplicant"           2>/dev/null || true
-pkill -f "dhclient.*${IFACE}"       2>/dev/null || true
-systemctl stop "dhcpcd@${IFACE}"    2>/dev/null || true
+# Tell NetworkManager to stop managing wlan0 only — keeps eth0 alive for SSH
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/unmanage-wlan0.conf <<'EOF'
+[keyfile]
+unmanaged-devices=interface-name:wlan0
+EOF
+systemctl reload-or-restart NetworkManager 2>/dev/null || true
 sleep 2
+# Disconnect wlan0 from any active connection
+nmcli device disconnect "$IFACE"    2>/dev/null || true
+pkill -f "wpa_supplicant.*${IFACE}" 2>/dev/null || true
+pkill -f "dhclient.*${IFACE}"       2>/dev/null || true
+sleep 1
 
 # ── 2. Assign static IP ───────────────────────────────────────────────────────
 log "Assigning $AP_IP/$AP_PREFIX to $IFACE…"
