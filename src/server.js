@@ -7,6 +7,7 @@ const path = require('path');
 const gpioRoutes = require('./routes/gpio');
 const systemRoutes = require('./routes/system');
 const launchRoutes = require('./routes/launch');
+const plugRoutes = require('./routes/plug');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api/gpio', gpioRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/launch', launchRoutes);
+app.use('/api/plug', plugRoutes);
 
 // Fallback to SPA index
 app.get('*', (_req, res) => {

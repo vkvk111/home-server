@@ -3,6 +3,7 @@
 const mqtt = require('mqtt');
 
 let client = null;
+const plugCache = {}; // { 'plug1001': { voltage, current, power, ... } }
 
 function getClient() {
   if (client) return client;
@@ -14,7 +15,37 @@ function getClient() {
     reconnectPeriod: 3000,
   });
 
-  client.on('connect', () => console.log('[mqtt] connected to', url));
+  client.on('connect', () => {
+    console.log('[mqtt] connected to', url);
+    client.subscribe('#', { qos: 0 });
+  });
+
+  client.on('message', (topic, message) => {
+    const msg = message.toString();
+    const parts = topic.split('/');
+
+    // Telemetry: plug{id}/{type}  e.g. plug1001/voltage
+    if (parts.length === 2 && parts[0].startsWith('plug')) {
+      const plugId = parts[0];
+      if (!plugCache[plugId]) plugCache[plugId] = {};
+      plugCache[plugId][parts[1]] = msg;
+      plugCache[plugId].lastSeen = Date.now();
+    }
+
+    // stat/plug{id}/POWER  or  stat/plug{id}/STATUS
+    if (parts.length === 3 && parts[0] === 'stat' && parts[1].startsWith('plug')) {
+      const plugId = parts[1];
+      if (!plugCache[plugId]) plugCache[plugId] = {};
+      if (parts[2] === 'POWER') {
+        plugCache[plugId].powerState = msg;
+      } else if (parts[2] === 'STATUS') {
+        try { plugCache[plugId].statusRaw = JSON.parse(msg); }
+        catch { plugCache[plugId].statusRaw = msg; }
+      }
+      plugCache[plugId].lastSeen = Date.now();
+    }
+  });
+
   client.on('error', (err) => console.error('[mqtt] error:', err.message));
   client.on('reconnect', () => console.log('[mqtt] reconnecting…'));
 
@@ -30,4 +61,8 @@ function publish(topic, payload) {
   });
 }
 
-module.exports = { publish };
+function getPlugData(plugId) {
+  return plugCache[plugId] || null;
+}
+
+module.exports = { getClient, publish, getPlugData };

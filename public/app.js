@@ -5,12 +5,15 @@
 const routes = {
   dashboard: renderDashboard,
   gpio: renderGpio,
-  launch: renderLaunch,
+  plug: renderPlug,
 };
 
 let currentPage = 'dashboard';
+let _pollTimer = null;
 
 function navigate(page) {
+  clearInterval(_pollTimer);
+  _pollTimer = null;
   currentPage = page;
   document.querySelectorAll('.nav-links a').forEach((a) => {
     a.classList.toggle('active', a.dataset.page === page);
@@ -178,37 +181,105 @@ function renderGpio(el) {
   });
 }
 
-// ── Launch page ──────────────────────────────────────────────────────────────
+// ── Plug page ─────────────────────────────────────────────────────────────────
 
-function renderLaunch(el) {
+function renderPlug(el) {
   el.innerHTML = `
-    <h2>Launch Sequence</h2>
-    <div class="card launch-card">
-      <div class="card-title">Smart Plug Control</div>
-      <p class="launch-desc">Sends the launch sequence command to plug1001 via MQTT.</p>
-      <button id="launch-btn" class="btn-launch">&#9654; Run Launch Sequence</button>
-      <pre class="output" id="launch-out">—</pre>
+    <h2>Plug Control — plug1001</h2>
+    <div class="grid" id="plug-grid">
+      <div class="card"><div class="card-title">Loading…</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Controls</div>
+      <div class="form-row" style="gap:0.75rem;align-items:center;flex-wrap:wrap">
+        <button id="plug-on-btn"  class="btn-plug btn-plug-on">ON</button>
+        <button id="plug-off-btn" class="btn-plug btn-plug-off">OFF</button>
+        <button id="launch-btn"   class="btn-launch">&#9654; Launch Sequence</button>
+      </div>
+      <pre class="output" id="plug-cmd-out">—</pre>
     </div>
   `;
 
+  async function refresh() {
+    try {
+      const { data } = await apiFetch('/api/plug/1001');
+      const grid = document.getElementById('plug-grid');
+      if (!grid) return;
+      if (!data) {
+        grid.innerHTML = `<div class="card"><span class="badge badge-err">No data</span> Waiting for telemetry from plug1001…</div>`;
+        return;
+      }
+      const state = data.powerState || data.status || '—';
+      const stateClass = state === 'ON' ? 'badge-ok' : state === 'OFF' ? 'badge-err' : '';
+      const ago = data.lastSeen ? Math.round((Date.now() - data.lastSeen) / 1000) + 's ago' : '—';
+      grid.innerHTML = `
+        <div class="card">
+          <div class="card-title">Status</div>
+          <div class="card-value"><span class="badge ${escHtml(stateClass)}">${escHtml(state)}</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Voltage</div>
+          <div class="card-value">${data.voltage != null ? escHtml(data.voltage) + ' V' : '—'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Current</div>
+          <div class="card-value">${data.current != null ? escHtml(data.current) + ' A' : '—'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Power</div>
+          <div class="card-value">${data.power != null ? escHtml(data.power) + ' W' : '—'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Power Factor</div>
+          <div class="card-value">${data.power_factor != null ? escHtml(data.power_factor) : '—'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Energy</div>
+          <div class="card-value">${data.energycounter != null ? escHtml(data.energycounter) + ' kWh' : '—'}</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Last seen</div>
+          <div class="card-value" style="font-size:1rem">${escHtml(ago)}</div>
+        </div>
+      `;
+    } catch (err) {
+      const grid = document.getElementById('plug-grid');
+      if (grid) grid.innerHTML = `<div class="card"><span class="badge badge-err">Error</span> ${escHtml(err.message)}</div>`;
+    }
+  }
+
+  refresh();
+  _pollTimer = setInterval(refresh, 3000);
+
+  async function sendPower(state) {
+    const out = document.getElementById('plug-cmd-out');
+    if (!out) return;
+    try {
+      const res = await apiFetch('/api/plug/1001/power', { method: 'POST', body: JSON.stringify({ state }) });
+      out.textContent = `Power → ${res.state}`;
+    } catch (err) {
+      out.textContent = `Error: ${escHtml(err.message)}`;
+    }
+  }
+
+  document.getElementById('plug-on-btn').addEventListener('click', () => sendPower('ON'));
+  document.getElementById('plug-off-btn').addEventListener('click', () => sendPower('OFF'));
+
   document.getElementById('launch-btn').addEventListener('click', async () => {
     const btn = document.getElementById('launch-btn');
-    const out = document.getElementById('launch-out');
+    const out = document.getElementById('plug-cmd-out');
+    if (!btn || !out) return;
     btn.disabled = true;
     btn.textContent = 'Running…';
-    out.textContent = '—';
     try {
       const res = await apiFetch('/api/launch', { method: 'POST' });
       out.textContent = res.message;
       btn.textContent = '✓ Done';
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.textContent = '&#9654; Run Launch Sequence';
-      }, 2000);
+      setTimeout(() => { btn.disabled = false; btn.innerHTML = '&#9654; Launch Sequence'; }, 2000);
     } catch (err) {
       out.textContent = `Error: ${escHtml(err.message)}`;
       btn.disabled = false;
-      btn.textContent = '&#9654; Run Launch Sequence';
+      btn.innerHTML = '&#9654; Launch Sequence';
     }
   });
 }

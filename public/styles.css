@@ -194,3 +194,18 @@ h2 { margin-bottom: 1rem; font-size: 1.15rem; }
 
 .btn-launch:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
 .btn-launch:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Plug ON/OFF buttons */
+.btn-plug {
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.6rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.btn-plug-on  { background: #22543d; color: var(--success); }
+.btn-plug-off { background: #742a2a; color: var(--danger); }
+.btn-plug:hover:not(:disabled) { opacity: 0.8; }
+.btn-plug:disabled { opacity: 0.4; cursor: not-allowed; }
