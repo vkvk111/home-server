@@ -8,6 +8,8 @@ const gpioRoutes = require('./routes/gpio');
 const systemRoutes = require('./routes/system');
 const launchRoutes = require('./routes/launch');
 const plugRoutes = require('./routes/plug');
+const button = require('./services/button');
+const { publish } = require('./services/mqtt');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,6 +31,20 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
+// ── Button GPIO ───────────────────────────────────────────────────────────────
+button.start();
+
+button.emitter.on('press', async () => {
+  try {
+    await publish('cmnd/plug1001/Power', 'ON');
+    console.log('[button] Launch sequence triggered');
+    button.blinkLed();
+  } catch (err) {
+    console.error('[button] Launch failed:', err.message);
+  }
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
 const { version } = require('../package.json');
 app.listen(PORT, HOST, () => {
   console.log(`Home server v${version} running at http://${HOST}:${PORT}`);

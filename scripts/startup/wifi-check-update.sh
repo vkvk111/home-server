@@ -26,7 +26,7 @@ trap cleanup EXIT
 
 # ── 1. Make sure the interface is up ─────────────────────────────────────────
 ip link set "$IFACE" up 2>/dev/null || true
-sleep 2
+sleep 1
 
 # ── 2. Scan (up to 3 attempts) ───────────────────────────────────────────────
 log "Scanning for SSID: $SSID"
@@ -37,8 +37,8 @@ for attempt in 1 2 3; do
     FOUND=true
     break
   fi
-  log "Attempt $attempt: not found, retrying in 4 s…"
-  sleep 4
+  log "Attempt $attempt: not found, retrying in 2 s…"
+  sleep 2
 done
 
 if ! $FOUND; then
@@ -50,14 +50,13 @@ log "SSID found. Connecting…"
 
 # ── 3. Stop any client wpa_supplicant that may already be running ─────────────
 pkill -f "wpa_supplicant.*${IFACE}" 2>/dev/null || true
-sleep 1
 
 # ── 4. Build wpa_supplicant config (hashed PSK, no plaintext in file) ─────────
 wpa_passphrase "$SSID" "$PASS" | grep -v '^\s*#psk' > "$WPA_CONF"
 
 wpa_supplicant -B -D nl80211,wext -i "$IFACE" -c "$WPA_CONF" \
   -P "/var/run/wpa_supplicant-home.pid" 2>/dev/null
-sleep 4
+sleep 2
 
 # ── 5. Obtain an IP address ───────────────────────────────────────────────────
 if command -v dhclient &>/dev/null; then
@@ -71,7 +70,7 @@ fi
 
 # ── 6. Verify connectivity ────────────────────────────────────────────────────
 log "Verifying internet access…"
-if ! ping -c 2 -W 6 github.com &>/dev/null; then
+if ! ping -c 1 -W 4 github.com &>/dev/null; then
   warn "Cannot reach github.com — skipping git pull."
   # Still proceed to clean disconnect; exit 2 to signal partial failure
   _SKIP_PULL=true
@@ -95,7 +94,6 @@ log "Disconnecting client WiFi…"
 pkill -f "wpa_supplicant.*${IFACE}" 2>/dev/null || true
 dhclient -r "$IFACE" 2>/dev/null || dhcpcd -k "$IFACE" 2>/dev/null || true
 ip addr flush dev "$IFACE" 2>/dev/null || true
-sleep 1
 
 log "Client WiFi disconnected."
 exit 0

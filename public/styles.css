@@ -38,6 +38,20 @@ body {
   color: var(--accent);
 }
 
+/* Button ready indicator */
+.btn-status {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.btn-status[data-state="ready"]        { background: var(--success); }
+.btn-status[data-state="active"]       { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.btn-status[data-state="waiting"]      { background: #f6e05e; }
+.btn-status[data-state="disconnected"] { background: var(--muted); }
+
 .nav-links {
   display: flex;
   gap: 1.5rem;

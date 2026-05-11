@@ -23,13 +23,12 @@ cat > /etc/NetworkManager/conf.d/unmanage-wlan0.conf <<'EOF'
 [keyfile]
 unmanaged-devices=interface-name:wlan0
 EOF
-systemctl reload-or-restart NetworkManager 2>/dev/null || true
-sleep 2
+systemctl reload NetworkManager 2>/dev/null || systemctl restart NetworkManager 2>/dev/null || true
+sleep 1
 # Disconnect wlan0 from any active connection
 nmcli device disconnect "$IFACE"    2>/dev/null || true
 pkill -f "wpa_supplicant.*${IFACE}" 2>/dev/null || true
 pkill -f "dhclient.*${IFACE}"       2>/dev/null || true
-sleep 1
 
 # ── 2. Assign static IP ───────────────────────────────────────────────────────
 log "Assigning $AP_IP/$AP_PREFIX to $IFACE…"

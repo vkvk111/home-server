@@ -24,11 +24,19 @@ function getClient() {
     const msg = message.toString();
     const parts = topic.split('/');
 
-    // Telemetry: plug{id}/{type}  e.g. plug1001/voltage
-    if (parts.length === 2 && parts[0].startsWith('plug')) {
+    // Telemetry: plug{id}/{type}/get  e.g. plug1001/voltage/get
+    if (parts.length === 3 && parts[0].startsWith('plug') && parts[2] === 'get') {
       const plugId = parts[0];
       if (!plugCache[plugId]) plugCache[plugId] = {};
       plugCache[plugId][parts[1]] = msg;
+      plugCache[plugId].lastSeen = Date.now();
+    }
+
+    // plug{id}/connected  e.g. plug1001/connected online
+    if (parts.length === 2 && parts[0].startsWith('plug') && parts[1] === 'connected') {
+      const plugId = parts[0];
+      if (!plugCache[plugId]) plugCache[plugId] = {};
+      plugCache[plugId].connected = msg;
       plugCache[plugId].lastSeen = Date.now();
     }
 
