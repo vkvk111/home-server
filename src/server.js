@@ -25,6 +25,7 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
+const { version } = require('../package.json');
 app.listen(PORT, HOST, () => {
-  console.log(`Home server running at http://${HOST}:${PORT}`);
+  console.log(`Home server v${version} running at http://${HOST}:${PORT}`);
 });
