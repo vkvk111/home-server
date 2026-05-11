@@ -17,10 +17,11 @@ warn() { echo -e "\033[1;33m[ap-mode]\033[0m $*"; }
 
 # ── 1. Stop anything that might conflict with hostapd ─────────────────────────
 log "Stopping client WiFi processes on $IFACE…"
+# NetworkManager owns wpa_supplicant on Raspbian Bookworm — stop it first
+systemctl stop NetworkManager       2>/dev/null || true
 systemctl stop wpa_supplicant       2>/dev/null || true
 pkill -f "wpa_supplicant"           2>/dev/null || true
 pkill -f "dhclient.*${IFACE}"       2>/dev/null || true
-# Stop dhcpcd per-interface (leave eth0 alone)
 systemctl stop "dhcpcd@${IFACE}"    2>/dev/null || true
 sleep 2
 
