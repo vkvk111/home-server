@@ -8,6 +8,7 @@ const gpioRoutes = require('./routes/gpio');
 const systemRoutes = require('./routes/system');
 const launchRoutes = require('./routes/launch');
 const plugRoutes = require('./routes/plug');
+const ledsRoutes = require('./routes/leds');
 const button = require('./services/button');
 const { publish } = require('./services/mqtt');
 
@@ -25,6 +26,7 @@ app.use('/api/gpio', gpioRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/launch', launchRoutes);
 app.use('/api/plug', plugRoutes);
+app.use('/api/leds', ledsRoutes);
 
 // Fallback to SPA index
 app.get('*', (_req, res) => {
