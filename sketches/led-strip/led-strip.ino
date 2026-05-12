@@ -18,11 +18,11 @@
  *   {"effect":"pulse","r":0,"g":0,"b":255,"speed":5}
  *
  * Libraries required (Arduino Library Manager):
- *   - FastLED (by Daniel Garcia)
+ *   - Adafruit NeoPixel  (works with any WS2812B strip, not Adafruit-specific)
  *   - ArduinoJson v6 (Benoit Blanchon)
  */
 
-#include <FastLED.h>
+#include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 
 // Strip configuration
@@ -30,7 +30,7 @@
 #define BRIGHTNESS 255
 #define LED_PIN    6
 
-CRGB leds[NUM_LEDS];
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // Effect state
 enum Effect { FX_OFF, FX_SOLID, FX_RAINBOW, FX_CHASE, FX_PULSE };
@@ -43,30 +43,34 @@ unsigned long lastFrameMs = 0;
 // Effects
 
 void renderOff() {
-  FastLED.clear();
-  FastLED.show();
+  strip.clear();
+  strip.show();
 }
 
 void renderSolid() {
-  fill_solid(leds, NUM_LEDS, CRGB(fxR, fxG, fxB));
-  FastLED.show();
+  for (int i = 0; i < NUM_LEDS; i++)
+    strip.setPixelColor(i, strip.Color(fxR, fxG, fxB));
+  strip.show();
 }
 
 void renderRainbow() {
   if (millis() - lastFrameMs < (unsigned long)fxSpeed) return;
   lastFrameMs = millis();
-  fill_rainbow(leds, NUM_LEDS, (uint8_t)fxStep, 256 / NUM_LEDS);
-  FastLED.show();
-  fxStep++;
+  for (int i = 0; i < NUM_LEDS; i++) {
+    uint16_t hue = (uint16_t)(fxStep + (uint32_t)i * 65536UL / NUM_LEDS);
+    strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(hue)));
+  }
+  strip.show();
+  fxStep += 256;
 }
 
 void renderChase() {
   if (millis() - lastFrameMs < (unsigned long)fxSpeed) return;
   lastFrameMs = millis();
-  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  strip.clear();
   for (int i = 0; i < NUM_LEDS; i += 3)
-    leds[(fxStep + i) % NUM_LEDS] = CRGB(fxR, fxG, fxB);
-  FastLED.show();
+    strip.setPixelColor((fxStep + i) % NUM_LEDS, strip.Color(fxR, fxG, fxB));
+  strip.show();
   fxStep = (fxStep + 1) % NUM_LEDS;
 }
 
@@ -75,11 +79,12 @@ void renderPulse() {
   lastFrameMs = millis();
   float phase = (sin(fxStep * 0.05f) + 1.0f) * 0.5f;
   uint8_t bri = (uint8_t)(phase * 255);
-  fill_solid(leds, NUM_LEDS, CRGB(
-    (uint16_t)fxR * bri >> 8,
-    (uint16_t)fxG * bri >> 8,
-    (uint16_t)fxB * bri >> 8));
-  FastLED.show();
+  for (int i = 0; i < NUM_LEDS; i++)
+    strip.setPixelColor(i, strip.Color(
+      (uint16_t)fxR * bri >> 8,
+      (uint16_t)fxG * bri >> 8,
+      (uint16_t)fxB * bri >> 8));
+  strip.show();
   fxStep++;
 }
 
@@ -150,10 +155,10 @@ void checkSerial() {
 
 void setup() {
   Serial.begin(9600);
-  FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
-  FastLED.setBrightness(BRIGHTNESS);
-  FastLED.clear();
-  FastLED.show();
+  strip.begin();
+  strip.setBrightness(BRIGHTNESS);
+  strip.clear();
+  strip.show();
   applyCommand(DEMO_CMDS[0]);
   lastDemoMs = millis();
   Serial.println(F("Ready - send JSON commands at 9600 baud"));
