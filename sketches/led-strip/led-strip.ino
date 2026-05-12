@@ -1,77 +1,46 @@
 /*
- * led-strip.ino — NeoPixel LED strip controller
+ * led-strip.ino - NeoPixel LED strip controller (Uno R3)
  *
- * ── Platforms ────────────────────────────────────────────────────────────────
- *  ESP8266 (NodeMCU etc.)
- *    Connects to 'lever' AP, subscribes MQTT topic cmnd/leds/strip1.
- *    Publishes acknowledgement to stat/leds/strip1.
+ * Cycles through demo sequences every 6 s.
+ * Also accepts JSON commands on Serial (9600 baud).
  *
- *  Arduino Uno / Leonardo (test mode — no WiFi)
- *    Cycles through demo sequences every 6 s.
- *    Also accepts JSON commands on Serial (9600 baud), same format as MQTT.
+ * Wiring:
+ *   NeoPixel DATA  -> digital pin 6
+ *   NeoPixel 5V    -> 5V (external supply recommended for >10 LEDs)
+ *   NeoPixel GND   -> GND
+ *   300-500 ohm resistor in series on data line recommended
  *
- * ── Wiring ────────────────────────────────────────────────────────────────────
- *  NeoPixel DATA → D4 (ESP8266 / NodeMCU GPIO2)  OR  pin 6 (Uno/Leonardo)
- *  NeoPixel 5V   → 5V
- *  NeoPixel GND  → GND
- *  (A 300–500 Ω resistor in series on the data line is recommended)
+ * Serial command format (newline-terminated):
+ *   {"effect":"off"}
+ *   {"effect":"solid","r":255,"g":0,"b":0}
+ *   {"effect":"rainbow"}
+ *   {"effect":"chase","r":255,"g":100,"b":0,"speed":40}
+ *   {"effect":"pulse","r":0,"g":0,"b":255,"speed":5}
  *
- * ── Command format (MQTT payload or Serial line) ──────────────────────────────
- *  {"effect":"off"}
- *  {"effect":"solid","r":255,"g":0,"b":0}
- *  {"effect":"rainbow"}
- *  {"effect":"chase","r":255,"g":100,"b":0,"speed":40}
- *  {"effect":"pulse","r":0,"g":0,"b":255,"speed":5}
- *
- * ── Libraries (install via Arduino Library Manager) ──────────────────────────
- *  - Adafruit NeoPixel
- *  - ArduinoJson  (v6)
- *  - PubSubClient  (ESP8266 target only)
+ * Libraries required (Arduino Library Manager):
+ *   - Adafruit NeoPixel
+ *   - ArduinoJson v6 (Benoit Blanchon)
  */
 
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 
-// ── Strip configuration ───────────────────────────────────────────────────────
-#define NUM_LEDS   30    // change to match your strip length
-#define BRIGHTNESS 80    // 0–255 global brightness cap
+// Strip configuration
+#define NUM_LEDS   30
+#define BRIGHTNESS 255
+#define LED_PIN    6
 
-#ifdef ESP8266
-  #define LED_PIN D4     // NodeMCU GPIO2 (D4)
-#else
-  #define LED_PIN 6      // Uno / Leonardo digital 6
-#endif
-
-// ── WiFi + MQTT (ESP8266 only) ────────────────────────────────────────────────
-#ifdef ESP8266
-  #include <ESP8266WiFi.h>
-  #include <PubSubClient.h>
-
-  const char* WIFI_SSID   = "lever";
-  const char* WIFI_PASS   = "xx7usavf7szhx";
-  const char* MQTT_HOST   = "192.168.4.1";
-  const int   MQTT_PORT   = 1883;
-  const char* MQTT_USER   = "kybe";
-  const char* MQTT_PASS   = "88888888";
-  const char* MQTT_SUB    = "cmnd/leds/strip1";
-  const char* MQTT_STAT   = "stat/leds/strip1";
-  const char* CLIENT_ID   = "led-strip1";
-
-  WiFiClient   wifiClient;
-  PubSubClient mqttClient(wifiClient);
-#endif
-
-// ── Strip + effect state ──────────────────────────────────────────────────────
 Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
+// Effect state
 enum Effect { FX_OFF, FX_SOLID, FX_RAINBOW, FX_CHASE, FX_PULSE };
 Effect        currentEffect = FX_RAINBOW;
-uint8_t       fxR = 0, fxG = 0, fxB = 255;
-uint8_t       fxSpeed = 40;   // ms between frames (lower = faster)
+uint8_t       fxR = 255, fxG = 255, fxB = 255;
+uint8_t       fxSpeed = 40;
 uint32_t      fxStep  = 0;
 unsigned long lastFrameMs = 0;
 
-// ── Effects ───────────────────────────────────────────────────────────────────
+// Effects
 
 void renderOff() {
   strip.clear();
@@ -109,7 +78,7 @@ void renderPulse() {
   if (millis() - lastFrameMs < 10) return;
   lastFrameMs = millis();
   float phase = (sin(fxStep * 0.05f) + 1.0f) * 0.5f;
-  uint8_t bri  = (uint8_t)(phase * 255);
+  uint8_t bri = (uint8_t)(phase * 255);
   for (int i = 0; i < NUM_LEDS; i++)
     strip.setPixelColor(i, strip.Color(
       (uint16_t)fxR * bri >> 8,
@@ -119,11 +88,14 @@ void renderPulse() {
   fxStep++;
 }
 
-// ── Command parser ────────────────────────────────────────────────────────────
+// Command parser
 
 void applyCommand(const char* payload) {
   StaticJsonDocument<128> doc;
-  if (deserializeJson(doc, payload) != DeserializationError::Ok) return;
+  if (deserializeJson(doc, payload) != DeserializationError::Ok) {
+    Serial.println(F("ERR: bad JSON"));
+    return;
+  }
 
   const char* effect = doc["effect"] | "rainbow";
   fxR     = doc["r"]     | 255;
@@ -138,49 +110,11 @@ void applyCommand(const char* payload) {
   else if (strcmp(effect, "rainbow") == 0)   currentEffect = FX_RAINBOW;
   else if (strcmp(effect, "chase")   == 0)   currentEffect = FX_CHASE;
   else if (strcmp(effect, "pulse")   == 0)   currentEffect = FX_PULSE;
+
+  Serial.print(F("OK: ")); Serial.println(effect);
 }
 
-// ── ESP8266: WiFi + MQTT ──────────────────────────────────────────────────────
-#ifdef ESP8266
-
-void connectWifi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  // Flash strip amber while connecting
-  while (WiFi.status() != WL_CONNECTED) {
-    for (int i = 0; i < NUM_LEDS; i++)
-      strip.setPixelColor(i, i % 2 == 0 ? strip.Color(80, 40, 0) : 0);
-    strip.show();
-    delay(300);
-    strip.clear(); strip.show();
-    delay(200);
-  }
-}
-
-void mqttCallback(char* topic, byte* payload, unsigned int len) {
-  char buf[128];
-  if (len >= sizeof(buf)) return;
-  memcpy(buf, payload, len);
-  buf[len] = '\0';
-  applyCommand(buf);
-  mqttClient.publish(MQTT_STAT, buf);
-}
-
-void ensureMqtt() {
-  if (mqttClient.connected()) return;
-  if (WiFi.status() != WL_CONNECTED) connectWifi();
-  if (mqttClient.connect(CLIENT_ID, MQTT_USER, MQTT_PASS)) {
-    mqttClient.subscribe(MQTT_SUB);
-    // Confirm ready: brief blue flash
-    for (int i = 0; i < NUM_LEDS; i++) strip.setPixelColor(i, strip.Color(0, 0, 80));
-    strip.show(); delay(200); strip.clear(); strip.show();
-  }
-}
-
-#endif  // ESP8266
-
-// ── Uno/Leonardo: demo sequences ──────────────────────────────────────────────
-#ifndef ESP8266
+// Demo sequences
 
 #define DEMO_INTERVAL 6000UL
 
@@ -197,7 +131,8 @@ const uint8_t DEMO_COUNT = sizeof(DEMO_CMDS) / sizeof(DEMO_CMDS[0]);
 uint8_t       demoStep   = 0;
 unsigned long lastDemoMs = 0;
 
-// Serial command buffer
+// Serial reader
+
 char    serialBuf[128];
 uint8_t serialPos = 0;
 
@@ -216,52 +151,33 @@ void checkSerial() {
   }
 }
 
-#endif  // !ESP8266
-
-// ── Setup ─────────────────────────────────────────────────────────────────────
+// Setup and loop
 
 void setup() {
   Serial.begin(9600);
-
   strip.begin();
   strip.setBrightness(BRIGHTNESS);
   strip.clear();
   strip.show();
-
-#ifdef ESP8266
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  mqttClient.setCallback(mqttCallback);
-  connectWifi();
-  ensureMqtt();
-  applyCommand("{\"effect\":\"rainbow\"}");
-#else
   applyCommand(DEMO_CMDS[0]);
   lastDemoMs = millis();
-  Serial.println(F("LED strip ready. Send JSON commands at 9600 baud."));
-  Serial.println(F("Example: {\"effect\":\"rainbow\"}"));
-#endif
+  Serial.println(F("Ready - send JSON commands at 9600 baud"));
 }
 
-// ── Loop ──────────────────────────────────────────────────────────────────────
-
 void loop() {
-#ifdef ESP8266
-  ensureMqtt();
-  mqttClient.loop();
-#else
   checkSerial();
+
   if (millis() - lastDemoMs >= DEMO_INTERVAL) {
     lastDemoMs = millis();
     demoStep   = (demoStep + 1) % DEMO_COUNT;
     applyCommand(DEMO_CMDS[demoStep]);
   }
-#endif
 
   switch (currentEffect) {
-    case FX_OFF:                       break;
-    case FX_SOLID:   renderSolid();    break;
-    case FX_RAINBOW: renderRainbow();  break;
-    case FX_CHASE:   renderChase();    break;
-    case FX_PULSE:   renderPulse();    break;
+    case FX_OFF:                      break;
+    case FX_SOLID:   renderSolid();   break;
+    case FX_RAINBOW: renderRainbow(); break;
+    case FX_CHASE:   renderChase();   break;
+    case FX_PULSE:   renderPulse();   break;
   }
 }
