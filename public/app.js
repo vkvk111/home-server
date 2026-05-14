@@ -6,6 +6,7 @@ const routes = {
   dashboard: renderDashboard,
   gpio: renderGpio,
   plug: renderPlug,
+  stepper: renderStepper,
 };
 
 let currentPage = 'dashboard';
@@ -284,7 +285,125 @@ function renderPlug(el) {
   });
 }
 
-// ── Utils ─────────────────────────────────────────────────────────────────────
+// ── Stepper page ──────────────────────────────────────────────────────────────
+
+function renderStepper(el) {
+  el.innerHTML = `
+    <h2>Stepper Motor — motor-test</h2>
+    <p style="color:var(--text-muted,#888);margin:0 0 1rem">
+      Adjust speed to find the quietest / highest-torque point.
+      The motor auto-cycles back and forth while ON so you can listen.
+    </p>
+
+    <div class="card">
+      <div class="card-title">Motor control</div>
+      <div class="form-row" style="gap:0.75rem;align-items:center;flex-wrap:wrap">
+        <button id="step-on-btn"  class="btn-plug btn-plug-on">ON</button>
+        <button id="step-off-btn" class="btn-plug btn-plug-off">OFF</button>
+        <span id="step-state-badge" class="badge" style="font-size:0.9rem">—</span>
+      </div>
+      <pre class="output" id="step-cmd-out">—</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Speed — <span id="speed-label">150</span> steps/s</div>
+      <p style="font-size:0.85rem;color:var(--text-muted,#888);margin:0 0 0.75rem">
+        Lower speed = higher torque (less back-EMF).<br>
+        Microstepping (MS1/MS2/MS3 pins) also affects torque: full step = maximum.
+      </p>
+      <div class="form-row" style="align-items:center;gap:0.75rem;flex-wrap:wrap">
+        <span style="font-size:0.8rem;white-space:nowrap">10</span>
+        <input id="speed-slider" type="range" min="10" max="1000" step="10" value="150"
+               style="flex:1;min-width:140px;max-width:340px" />
+        <span style="font-size:0.8rem;white-space:nowrap">1000</span>
+        <input id="speed-number" type="number" min="10" max="1000" step="10" value="150"
+               style="width:80px" />
+        <button id="speed-set-btn">Set speed</button>
+      </div>
+      <div style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-muted,#888)">
+        Presets:
+        <button class="speed-preset" data-spd="50"  style="margin:0 4px">50</button>
+        <button class="speed-preset" data-spd="100" style="margin:0 4px">100</button>
+        <button class="speed-preset" data-spd="150" style="margin:0 4px">150</button>
+        <button class="speed-preset" data-spd="200" style="margin:0 4px">200</button>
+        <button class="speed-preset" data-spd="300" style="margin:0 4px">300</button>
+        <button class="speed-preset" data-spd="500" style="margin:0 4px">500</button>
+      </div>
+    </div>
+  `;
+
+  const sliderEl  = document.getElementById('speed-slider');
+  const numberEl  = document.getElementById('speed-number');
+  const labelEl   = document.getElementById('speed-label');
+  const outEl     = document.getElementById('step-cmd-out');
+  const badgeEl   = document.getElementById('step-state-badge');
+
+  let motorOn = false;
+
+  function setBadge(on) {
+    motorOn = on;
+    badgeEl.textContent = on ? 'RUNNING' : 'STOPPED';
+    badgeEl.className   = 'badge ' + (on ? 'badge-ok' : 'badge-err');
+  }
+
+  function syncControls(val) {
+    sliderEl.value = val;
+    numberEl.value = val;
+    labelEl.textContent = val;
+  }
+
+  sliderEl.addEventListener('input', () => syncControls(sliderEl.value));
+  numberEl.addEventListener('change', () => {
+    let v = Math.min(1000, Math.max(10, parseInt(numberEl.value, 10) || 150));
+    syncControls(v);
+  });
+
+  document.querySelectorAll('.speed-preset').forEach((btn) => {
+    btn.addEventListener('click', () => syncControls(btn.dataset.spd));
+  });
+
+  async function sendOn() {
+    try {
+      await apiFetch('/api/stepper/on', { method: 'POST' });
+      setBadge(true);
+      outEl.textContent = 'Motor ON — auto-cycling';
+    } catch (err) {
+      outEl.textContent = 'Error: ' + escHtml(err.message);
+    }
+  }
+
+  async function sendOff() {
+    try {
+      await apiFetch('/api/stepper/off', { method: 'POST' });
+      setBadge(false);
+      outEl.textContent = 'Motor OFF';
+    } catch (err) {
+      outEl.textContent = 'Error: ' + escHtml(err.message);
+    }
+  }
+
+  async function sendSpeed() {
+    const spd = parseInt(sliderEl.value, 10);
+    try {
+      await apiFetch('/api/stepper/speed', {
+        method: 'POST',
+        body: JSON.stringify({ speed: spd }),
+      });
+      outEl.textContent = `Speed set to ${spd} steps/s`;
+    } catch (err) {
+      outEl.textContent = 'Error: ' + escHtml(err.message);
+    }
+  }
+
+  document.getElementById('step-on-btn').addEventListener('click', sendOn);
+  document.getElementById('step-off-btn').addEventListener('click', sendOff);
+  document.getElementById('speed-set-btn').addEventListener('click', sendSpeed);
+
+  // Set speed immediately when slider is released (mouseup/touchend)
+  sliderEl.addEventListener('change', sendSpeed);
+}
+
+
 
 function escHtml(str) {
   return String(str)
