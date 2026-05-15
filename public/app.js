@@ -290,10 +290,6 @@ function renderPlug(el) {
 function renderStepper(el) {
   el.innerHTML = `
     <h2>Stepper Motor — motor-test</h2>
-    <p style="color:var(--text-muted,#888);margin:0 0 1rem">
-      Adjust speed to find the quietest / highest-torque point.
-      The motor auto-cycles back and forth while ON so you can listen.
-    </p>
 
     <div class="card" style="margin-bottom:0.75rem">
       <div class="card-title">ESP Status</div>
@@ -302,13 +298,39 @@ function renderStepper(el) {
     </div>
 
     <div class="card">
-      <div class="card-title">Motor control</div>
-      <div class="form-row" style="gap:0.75rem;align-items:center;flex-wrap:wrap">
-        <button id="step-on-btn"  class="btn-plug btn-plug-on">ON</button>
-        <button id="step-off-btn" class="btn-plug btn-plug-off">OFF</button>
-        <span id="step-state-badge" class="badge" style="font-size:0.9rem">—</span>
+      <div class="card-title">Motor control — <span id="step-state-badge" class="badge">—</span></div>
+
+      <div style="margin-bottom:0.9rem">
+        <div style="font-size:0.82rem;color:var(--text-muted,#888);margin-bottom:0.4rem">Auto-cycle (continuous back and forth)</div>
+        <div class="form-row" style="gap:0.75rem">
+          <button id="step-on-btn"  class="btn-plug btn-plug-on">ON</button>
+          <button id="step-off-btn" class="btn-plug btn-plug-off">OFF</button>
+        </div>
       </div>
-      <pre class="output" id="step-cmd-out">—</pre>
+
+      <hr style="border:none;border-top:1px solid var(--border,#333);margin:0.75rem 0">
+
+      <div>
+        <div style="font-size:0.82rem;color:var(--text-muted,#888);margin-bottom:0.4rem">
+          Move N steps &nbsp;
+          <button class="step-preset" data-n="200"   style="margin:0 2px">200</button>
+          <button class="step-preset" data-n="400"   style="margin:0 2px">400</button>
+          <button class="step-preset" data-n="800"   style="margin:0 2px">800</button>
+          <button class="step-preset" data-n="3200"  style="margin:0 2px">3200</button>
+          <button class="step-preset" data-n="99999" style="margin:0 2px">∞</button>
+        </div>
+        <div class="form-row" style="gap:0.75rem;align-items:center;flex-wrap:wrap">
+          <input id="steps-input" type="number" min="1" max="999999" value="400" style="width:90px" />
+          <span style="font-size:0.85rem">steps</span>
+        </div>
+        <div class="form-row" style="gap:0.75rem;margin-top:0.6rem;flex-wrap:wrap">
+          <button id="step-back-btn" style="min-width:90px">◄ Back</button>
+          <button id="step-stop-btn" style="min-width:90px">■ Stop</button>
+          <button id="step-fwd-btn"  style="min-width:90px">Fwd ►</button>
+        </div>
+      </div>
+
+      <pre class="output" id="step-cmd-out" style="margin-top:0.75rem">—</pre>
     </div>
 
     <div class="card">
@@ -343,6 +365,7 @@ function renderStepper(el) {
   const labelEl   = document.getElementById('speed-label');
   const outEl     = document.getElementById('step-cmd-out');
   const badgeEl   = document.getElementById('step-state-badge');
+  const stepsEl   = document.getElementById('steps-input');
 
   let motorOn = false;
 
@@ -368,6 +391,10 @@ function renderStepper(el) {
     btn.addEventListener('click', () => syncControls(btn.dataset.spd));
   });
 
+  document.querySelectorAll('.step-preset').forEach((btn) => {
+    btn.addEventListener('click', () => { stepsEl.value = btn.dataset.n; });
+  });
+
   async function sendOn() {
     try {
       await apiFetch('/api/stepper/on', { method: 'POST' });
@@ -382,7 +409,23 @@ function renderStepper(el) {
     try {
       await apiFetch('/api/stepper/off', { method: 'POST' });
       setBadge(false);
-      outEl.textContent = 'Motor OFF';
+      outEl.textContent = 'Motor stopped';
+    } catch (err) {
+      outEl.textContent = 'Error: ' + escHtml(err.message);
+    }
+  }
+
+  async function sendMove(dir) {
+    const steps = Math.min(999999, Math.max(1, parseInt(stepsEl.value, 10) || 400));
+    stepsEl.value = steps;
+    try {
+      await apiFetch('/api/stepper/move', {
+        method: 'POST',
+        body: JSON.stringify({ steps, dir }),
+      });
+      setBadge(true);
+      const label = steps >= 99999 ? '∞' : steps;
+      outEl.textContent = `Moving ${dir === 'f' ? 'forward' : 'backward'} ${label} steps`;
     } catch (err) {
       outEl.textContent = 'Error: ' + escHtml(err.message);
     }
@@ -403,9 +446,10 @@ function renderStepper(el) {
 
   document.getElementById('step-on-btn').addEventListener('click', sendOn);
   document.getElementById('step-off-btn').addEventListener('click', sendOff);
+  document.getElementById('step-fwd-btn').addEventListener('click', () => sendMove('f'));
+  document.getElementById('step-back-btn').addEventListener('click', () => sendMove('b'));
+  document.getElementById('step-stop-btn').addEventListener('click', sendOff);
   document.getElementById('speed-set-btn').addEventListener('click', sendSpeed);
-
-  // Set speed immediately when slider is released (mouseup/touchend)
   sliderEl.addEventListener('change', sendSpeed);
 
   // ── ESP online/offline indicator ──────────────────────────────────────────
@@ -417,9 +461,8 @@ function renderStepper(el) {
       const d = await apiFetch('/api/stepper/status');
       espBadge.textContent = d.online ? 'ONLINE' : (d.status === 'unknown' ? 'UNKNOWN' : 'OFFLINE');
       espBadge.className   = 'badge ' + (d.online ? 'badge-ok' : 'badge-err');
-      if (d.lastSeen) {
-        const secs = Math.round((Date.now() - d.lastSeen) / 1000);
-        espAge.textContent = secs < 5 ? 'just now' : `${secs}s ago`;
+      if (d.ageSecs !== null && d.ageSecs !== undefined) {
+        espAge.textContent = d.ageSecs < 10 ? 'just now' : `${d.ageSecs}s ago`;
       } else {
         espAge.textContent = '';
       }
