@@ -1,11 +1,18 @@
 'use strict';
 
 const { Router } = require('express');
-const { publish } = require('../services/mqtt');
+const { publish, getDeviceStatus } = require('../services/mqtt');
 
 const router = Router();
 
 const TOPIC = 'cmnd/motor-test/cmd';
+
+// GET /api/stepper/status
+router.get('/status', (_req, res) => {
+  const d = getDeviceStatus('motor-test');
+  const online = d?.status === 'online';
+  res.json({ online, status: d?.status ?? 'unknown', lastSeen: d?.lastSeen ?? null });
+});
 
 // POST /api/stepper/on
 router.post('/on', async (_req, res) => {

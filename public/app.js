@@ -295,6 +295,12 @@ function renderStepper(el) {
       The motor auto-cycles back and forth while ON so you can listen.
     </p>
 
+    <div class="card" style="margin-bottom:0.75rem">
+      <div class="card-title">ESP Status</div>
+      <span id="esp-status-badge" class="badge">checking…</span>
+      <span id="esp-status-age" style="font-size:0.78rem;color:var(--text-muted,#888);margin-left:0.5rem"></span>
+    </div>
+
     <div class="card">
       <div class="card-title">Motor control</div>
       <div class="form-row" style="gap:0.75rem;align-items:center;flex-wrap:wrap">
@@ -401,6 +407,30 @@ function renderStepper(el) {
 
   // Set speed immediately when slider is released (mouseup/touchend)
   sliderEl.addEventListener('change', sendSpeed);
+
+  // ── ESP online/offline indicator ──────────────────────────────────────────
+  const espBadge = document.getElementById('esp-status-badge');
+  const espAge   = document.getElementById('esp-status-age');
+
+  async function pollEspStatus() {
+    try {
+      const d = await apiFetch('/api/stepper/status');
+      espBadge.textContent = d.online ? 'ONLINE' : (d.status === 'unknown' ? 'UNKNOWN' : 'OFFLINE');
+      espBadge.className   = 'badge ' + (d.online ? 'badge-ok' : 'badge-err');
+      if (d.lastSeen) {
+        const secs = Math.round((Date.now() - d.lastSeen) / 1000);
+        espAge.textContent = secs < 5 ? 'just now' : `${secs}s ago`;
+      } else {
+        espAge.textContent = '';
+      }
+    } catch {
+      espBadge.textContent = 'ERROR';
+      espBadge.className   = 'badge badge-err';
+    }
+  }
+
+  pollEspStatus();
+  _pollTimer = setInterval(pollEspStatus, 5000);
 }
 
 

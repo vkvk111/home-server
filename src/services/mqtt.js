@@ -4,6 +4,7 @@ const mqtt = require('mqtt');
 
 let client = null;
 const plugCache = {}; // { 'plug1001': { voltage, current, power, ... } }
+const deviceCache = {}; // { 'motor-test': { status: 'online'|'offline', lastSeen } }
 
 function getClient() {
   if (client) return client;
@@ -23,6 +24,14 @@ function getClient() {
   client.on('message', (topic, message) => {
     const msg = message.toString();
     const parts = topic.split('/');
+
+    // stat/{device}/status  e.g. stat/motor-test/status  online|offline
+    if (parts.length === 3 && parts[0] === 'stat' && parts[2] === 'status') {
+      const devId = parts[1];
+      if (!deviceCache[devId]) deviceCache[devId] = {};
+      deviceCache[devId].status   = msg;
+      deviceCache[devId].lastSeen = Date.now();
+    }
 
     // Telemetry: plug{id}/{type}/get  e.g. plug1001/voltage/get
     if (parts.length === 3 && parts[0].startsWith('plug') && parts[2] === 'get') {
@@ -73,4 +82,8 @@ function getPlugData(plugId) {
   return plugCache[plugId] || null;
 }
 
-module.exports = { getClient, publish, getPlugData };
+function getDeviceStatus(devId) {
+  return deviceCache[devId] || null;
+}
+
+module.exports = { getClient, publish, getPlugData, getDeviceStatus };
